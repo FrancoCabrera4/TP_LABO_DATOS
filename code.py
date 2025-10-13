@@ -5,7 +5,7 @@ import duckdb as db
 # Se tiene que reemplazar con la ubicación propia y tienen que estar en esa carpeta todos los archivos que se abren abajo
 carpeta = "~/Documents/university/laboratorio_de_datos/TP/"
 
-# ARCHIVOS CRUDOS
+# SECCION 1 - ARCHIVOS CRUDOS
 
 datos_por_departamento = pd.read_csv(carpeta+"Datos_por_departamento_actividad_y_sexo.csv")
 padron_poblacion = pd.read_excel(carpeta+"padron_poblacion.xlsX")
@@ -13,8 +13,9 @@ actvidades_establecimiento = pd.read_csv(carpeta+"actividades_establecimientos.c
 padron_oficial_establecimientos_educativos_2022 = pd.read_csv(carpeta+"2022_padron_oficial_establecimientos_educativos.csv", skiprows=6)
 
 
-# LIMPIEZA DE DATOS
+# SECCION 2 - LIMPIEZA DE DATOS
 
+# Se crean las tablas o dataframes que modelan el DER construido
 modalidad_educativa = pd.DataFrame({
     "id_modalidad": [1, 2, 3, 4, 5, 6, 7],
     "modalidad": ["Común", "Común", "Común", "Común", "Común", "Común", "Común"],
@@ -32,6 +33,7 @@ actividad_catalogo = pd.DataFrame(columns=["clae6", "descripcion"])
 poblacion_departamento = pd.DataFrame(columns=["id_departamento", "edad", "casos"])
 
 
+# Se obtienen todos los departamentos con sus provincias y sus ids y se guardan en la tabla catálgo de estos.
 
 query1 = """
         SELECT DISTINCT in_departamentos AS id_departamento, provincia_id AS id_provincia, UPPER(TRANSLATE(departamento, 'áéíóúÁÉÍÓÚäü', 'aeiouAEIOUau')) AS departamento
@@ -39,6 +41,9 @@ query1 = """
 """
 
 departamento_catalogo = db.query(query1).to_df()
+
+# La tabla catálogo se va a utilizar para matchear consultas con las 3 entidades con las que se relaciona como se ve en el der
+# Sin embargo este departamento no se estaba incluido en la consulta anterior (pero sí en EE) por lo cual se lo agrega.
 
 temp = pd.DataFrame({
         "id_departamento": [99999],
@@ -48,18 +53,25 @@ temp = pd.DataFrame({
 
 departamento_catalogo = pd.concat([departamento_catalogo, temp], ignore_index=True)
 
+# Se completa la tabla provincia catalogo de manera análoga a la de departamento catálogo.
+
 query2 = """
         SELECT DISTINCT provincia_id AS id_provincia, UPPER(provincia) AS provincia 
         FROM datos_por_departamento;
 """
 
-provincia_catalogo = db.query(query2)
+provincia_catalogo = db.query(query2).to_df()
+
+# Se completa la tabla de actividad catálogo.
 
 query3 = """
         SELECT DISTINCT clae6, clae6_desc FROM actvidades_establecimiento;
 """
 
-actividad_catalogo = db.query(query3)
+actividad_catalogo = db.query(query3).to_df()
+
+# Hacemos una prelimpieza de una de las tablas crudas, primero se descartan las columnas que no son de interés (modalidades educativas más allá de la común)
+# y se definen nombres de columna correctos que interpretan la columna compuesta con la que se presentaba el excel.
 
 query4 = """
         SELECT "Jurisdicción", "Cueanexo", "Nombre", "Sector", "Ámbito", "Domicilio", "C. P.", "Código de área", "Teléfono", "Código de localidad", "Localidad", "Departamento", "Mail", 
@@ -68,7 +80,9 @@ query4 = """
         FROM padron_oficial_establecimientos_educativos_2022;
 """
 
-padron_oficial_establecimientos_educativos_2022 = db.query(query4)
+padron_oficial_establecimientos_educativos_2022 = db.query(query4).to_df()
+
+# Se completa la tabla de EE del DER que resulta simplemente una view o proyección de las columnas que se tomaron en la anterior query.
 
 query5 = """
         SELECT "Cueanexo" AS "CUE_establecimiento", "Nombre" AS "nombre", "Sector" AS "sector", "Mail" AS "mail", "Teléfono" AS "telefono",
@@ -76,7 +90,11 @@ query5 = """
 """
 
 
-establecimiento_educativo = db.query(query5)
+establecimiento_educativo = db.query(query5).to_df()
+
+# Se extrae la información de la tabla cruda de EE sobre las modalidades educativas de cada institución para plasmarlas en una nueva identidad, 
+# para ello, como se ve en la query, se utiliza varias veces el operador UNION y se van seleccionando aquellas entradas que no son nulas o vacias para
+# cada categoría.
 
 query6 = """
         SELECT "Cueanexo" AS "CUE_establecimiento", 1 AS "id_modalidad" FROM padron_oficial_establecimientos_educativos_2022 WHERE TRIM("Comun-Nivel inicial - Jardín maternal") != ''
@@ -94,7 +112,12 @@ query6 = """
         SELECT "Cueanexo" AS "CUE_establecimiento", 7 AS "id_modalidad" FROM padron_oficial_establecimientos_educativos_2022 WHERE TRIM("Comun-SNU - INET") != ''
         """
 
-establecimiento_modalidad = db.query(query6)
+establecimiento_modalidad = db.query(query6).to_df()
+
+# Como ya se explicó y se deja entender por el DER, nos interesa utilizar la tabla de departamento catálogo como punto de "pivot" para poder relacionar las
+# distintas tablas en las consultas. Ahora bien, la tabla EE cruda, a diferencia de las otras no cuenta con el id del departamento por lo cual se intenta
+# matchar por nombre departamento + nombre provincia (ya que esta combinación es única, pues en una misma provincia no existen dos o más departamentos con 
+# el mismo nombre). 
 
 query7 = """
         SELECT "Cueanexo" AS "CUE_establecimiento", departamento.id_departamento, "Ámbito" AS "ambito", "Domicilio" AS "domicilio", "C. P." AS "codigo_postal", "Localidad" AS "localidad" 
@@ -109,9 +132,11 @@ query7 = """
         AND UPPER(TRANSLATE(establecimiento."Jurisdicción", 'áéíóúÁÉÍÓÚäü', 'aeiouAEIOUau')) = departamento.provincia 
 """
 
-establecimiento_ubicacion = db.query(query7)
+establecimiento_ubicacion = db.query(query7).to_df()
 
-# Se resuelven los mismatchs restantes individualmente ya que son pocos
+# Usando el método anterior era imposible resolver todos los departamentos. Esto se debe a diferencias en la escritura de los departamentos como
+# abreviaciones, (general, grl. doctor, dr., etc) y recortes del nombre, entre otras. Afortunadamente son relativamente acotadas las ocurrencias que no 
+# consiguieron hacer match en el join y se resuelven manualmente.
 
 query8 = """
         SELECT a.CUE_establecimiento, 
@@ -136,7 +161,9 @@ query8 = """
         INNER JOIN  padron_oficial_establecimientos_educativos_2022 b ON a.CUE_establecimiento = b.Cueanexo
 """
 
-establecimiento_ubicacion = db.query(query8)
+establecimiento_ubicacion = db.query(query8).to_df()
+
+# Se limpia / parsea el excel de población que se encontraba de una manera bastante extraña, ciclando a través de sus filas, para obtener una sola tabla.
 
 def parsearExcelPoblacion(df):
     filas_validas = []
@@ -187,9 +214,9 @@ def parsearExcelPoblacion(df):
            filas_validas.append((id_departamento_actual, departamento_actual, edad, casos, porcentaje, acumulado))    
     return pd.DataFrame(filas_validas, columns=["id_departamento", "Departamento", "Edad", "Casos", "Porcentaje", "Acumulado_Porcentaje"])
 
-poblacion_departamento = parsearExcelPoblacion(padron_poblacion)
+poblacion_departamento = parsearExcelPoblacion(padron_poblacion).to_df()
 
-# Se hace limpieza de los datos que no matchean
+# Nuevamente como en el caso de EE, algunos departamentos terminan no matcheando, y se corrijen individualmente.
 
 query9 = """
         SELECT 
@@ -201,7 +228,9 @@ query9 = """
         END AS id_departamento, 
         "Edad" AS "edad", "Casos" AS "casos" FROM poblacion_departamento pob
 """
-poblacion_departamento = db.query(query9)
+poblacion_departamento = db.query(query9).to_df()
+
+# Se proyectan algunas columnas de la tabla cruda de actividades de empresas para que coincida con la representada en el DER.
 
 
 query10 = """
@@ -210,11 +239,14 @@ query10 = """
         WHERE anio = 2022
 """
 
-actividad_departamento = db.query(query10)
+actividad_departamento = db.query(query10).to_df()
 
 
 
-# CONSULTAS PEDIDAS
+# SECCION 3 - CONSULTAS PEDIDAS
+
+# Se hace la consulta sobre la tabla departamento y luego se hacen joins sobre las subqueries que procesaron los datos pedidos por medio de la función de 
+# agregación SUM.
 
 res_query1 = """
         SELECT prov.provincia, dep.departamento, est_ed.Jardines, pob.casos_jardin AS "Población Jardín",
@@ -246,6 +278,8 @@ res_query1 = """
 
 result1 = db.query(res_query1)
 
+# Se obtienen los departamentos y la cantidad de empleos haciendo un simple join entre estas tablas.
+
 res_query2 = """
         SELECT prov.provincia, dep.departamento, empleo AS "Cantidad total de empleados en 2022"
         FROM departamento_catalogo dep
@@ -257,6 +291,9 @@ res_query2 = """
 """
 
 result2 = db.query(res_query2)
+
+# Se seleccionan los departamentos y luego se hacen los joins con las tablas de actividad y población utilizando la función de agregación
+# SUM en cada caso para obtener lo pedido.
 
 res_query3 = """
         SELECT prov.provincia, dep.departamento, act.expo_mujeres AS "Cant_Expo_Mujeres", 
@@ -279,6 +316,10 @@ res_query3 = """
 """
 
 result3 = db.query(res_query3)
+
+# Las primeras 3 subqueries seleccionan: la cantidad de empleos en cada provincia, la cantidad de departamentos en cada provincia y la cantidad de empleos
+# en cada departamento. Finalmente la última subquery selecciona la clae6 por departamento que maximiza la cantidad de empleos. Luego el resultado final 
+# filtra por los departamentos que superan el promedio computado y se ordena los resultados de acuerdo a las provincias.
 
 res_query4 = """
                 SELECT prov.provincia, empleos_departamento.departamento, 
