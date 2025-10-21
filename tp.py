@@ -288,6 +288,7 @@ res_query2 = """
                    FROM actividad_departamento
                    GROUP BY id_departamento) act
         ON dep.id_departamento = act.id_departamento
+        ORDER BY prov.provincia ASC, empleo DESC
 """
 
 result2 = db.query(res_query2).to_df()
@@ -381,6 +382,7 @@ display(result1)
 display(result2)
 display(result3)
 display(result4)
+
 
 # SECCION ANALISIS VISUAL DE DATOS
 
