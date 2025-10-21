@@ -1,19 +1,19 @@
 import pandas as pd
 import duckdb as db
+import seaborn as sns
+import matplotlib.pyplot as plt
+from IPython.display import display
 
+# SECCION INICIALIZACION DE ARCHIVOS
 
-# Se tiene que reemplazar con la ubicación propia y tienen que estar en esa carpeta todos los archivos que se abren abajo
 carpeta = "~/Documents/university/laboratorio_de_datos/TP/"
-
-# SECCION 1 - ARCHIVOS CRUDOS
 
 datos_por_departamento = pd.read_csv(carpeta+"Datos_por_departamento_actividad_y_sexo.csv")
 padron_poblacion = pd.read_excel(carpeta+"padron_poblacion.xlsX")
 actvidades_establecimiento = pd.read_csv(carpeta+"actividades_establecimientos.csv")
 padron_oficial_establecimientos_educativos_2022 = pd.read_csv(carpeta+"2022_padron_oficial_establecimientos_educativos.csv", skiprows=6)
 
-
-# SECCION 2 - LIMPIEZA DE DATOS
+# SECCION LIMPIEZA DE DATOS
 
 # Se crean las tablas o dataframes que modelan el DER construido
 modalidad_educativa = pd.DataFrame({
@@ -214,7 +214,7 @@ def parsearExcelPoblacion(df):
            filas_validas.append((id_departamento_actual, departamento_actual, edad, casos, porcentaje, acumulado))    
     return pd.DataFrame(filas_validas, columns=["id_departamento", "Departamento", "Edad", "Casos", "Porcentaje", "Acumulado_Porcentaje"])
 
-poblacion_departamento = parsearExcelPoblacion(padron_poblacion).to_df()
+poblacion_departamento = parsearExcelPoblacion(padron_poblacion)
 
 # Nuevamente como en el caso de EE, algunos departamentos terminan no matcheando, y se corrijen individualmente.
 
@@ -241,9 +241,7 @@ query10 = """
 
 actividad_departamento = db.query(query10).to_df()
 
-
-
-# SECCION 3 - CONSULTAS PEDIDAS
+# SECCION QUERIES
 
 # Se hace la consulta sobre la tabla departamento y luego se hacen joins sobre las subqueries que procesaron los datos pedidos por medio de la función de 
 # agregación SUM.
@@ -273,12 +271,14 @@ res_query1 = """
                    SUM(CASE WHEN edad >= 18 AND edad <= 21 THEN casos ELSE 0 END) AS "casos_SNU"
                    FROM poblacion_departamento
                    GROUP BY id_departamento) pob ON dep.id_departamento = pob.id_departamento
+        WHERE est_ed.Jardines IS NOT NULL AND pob.casos_jardin IS NOT NULL
         ORDER BY prov.provincia, est_ed.Jardines DESC
 """
 
-result1 = db.query(res_query1)
+result1 = db.query(res_query1).to_df()
 
 # Se obtienen los departamentos y la cantidad de empleos haciendo un simple join entre estas tablas.
+
 
 res_query2 = """
         SELECT prov.provincia, dep.departamento, empleo AS "Cantidad total de empleados en 2022"
@@ -290,14 +290,14 @@ res_query2 = """
         ON dep.id_departamento = act.id_departamento
 """
 
-result2 = db.query(res_query2)
+result2 = db.query(res_query2).to_df()
 
 # Se seleccionan los departamentos y luego se hacen los joins con las tablas de actividad y población utilizando la función de agregación
 # SUM en cada caso para obtener lo pedido.
 
 res_query3 = """
         SELECT prov.provincia, dep.departamento, act.expo_mujeres AS "Cant_Expo_Mujeres", 
-        act.expo_comun AS "Cant_EE", pob.poblacion
+        est_EE.cant_EE AS "Cant_EE", pob.poblacion
         FROM departamento_catalogo dep
         INNER JOIN provincia_catalogo prov ON dep.id_provincia = prov.id_provincia
         LEFT JOIN (SELECT id_departamento, 
@@ -312,10 +312,16 @@ res_query3 = """
                    FROM poblacion_departamento
                    GROUP BY id_departamento) pob 
         ON dep.id_departamento = pob.id_departamento
+        LEFT JOIN (SELECT
+                   id_departamento,
+                   COUNT(CUE_Establecimiento) AS cant_EE
+                   FROM establecimiento_ubicacion est_ub
+                   GROUP BY id_departamento) est_EE
+        ON dep.id_departamento = est_EE.id_departamento
         ORDER BY "Cant_EE" DESC, provincia ASC, departamento DESC
 """
 
-result3 = db.query(res_query3)
+result3 = db.query(res_query3).to_df()
 
 # Las primeras 3 subqueries seleccionan: la cantidad de empleos en cada provincia, la cantidad de departamentos en cada provincia y la cantidad de empleos
 # en cada departamento. Finalmente la última subquery selecciona la clae6 por departamento que maximiza la cantidad de empleos. Luego el resultado final 
@@ -369,7 +375,189 @@ res_query4 = """
                 ORDER BY provincia DESC
 """
 
-result4 = db.query(res_query4)
+result4 = db.query(res_query4).to_df()
+
+display(result1)
+display(result2)
+display(result3)
+display(result4)
+
+# SECCION ANALISIS VISUAL DE DATOS
+
+#1) 
+query_empleo_prov = """
+    SELECT
+      prov.provincia,
+      SUM(act.empleo) AS empleo_total
+    FROM actividad_departamento act
+    JOIN departamento_catalogo dep ON act.id_departamento = dep.id_departamento
+    JOIN provincia_catalogo prov ON dep.id_provincia = prov.id_provincia
+    GROUP BY prov.provincia
+    ORDER BY empleo_total DESC
+"""
+
+df_empleo_prov = db.query(query_empleo_prov).to_df()
+
+# Grafico
+plt.figure(figsize=(12, 6))
+sns.barplot(
+    data=df_empleo_prov,
+    x='provincia',
+    y='empleo_total',
+    palette='Blues_d'
+)
+plt.title('Cantidad total de empleados por provincia (2022)')
+plt.xlabel('Provincia')
+plt.ylabel('Cantidad de empleados en millones')
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.show()
+
+#2)
+figureEE, axEE = plt.subplots()
+
+axEE.scatter(data=result1, x='Población Jardín', y='Jardines', c='green'
+           , edgecolor='k', label='Jardín (2-5)')
+axEE.scatter(data=result1, x='Población Primaria', y='Primario', c='blue'
+           ,edgecolor='k', label='Primario (6-11)')
+axEE.scatter(data=result1, x='Población Secundario', y='Secundario', c='red'
+           , edgecolor='k', label='Secundario (12-17')
+axEE.scatter(data=result1, x='Población Superior no Universitaria', y='Superior no Universitaria', c='yellow'
+           , edgecolor='k', label='SNU (18-21)')
+
+axEE.set_title('Establecimientos Educativos por Población en su Grupo Etario por Departamento en Argentina')
+axEE.set_xlabel('Población en departamento')
+#axEE.set_ylabel('Cantidad de EE en departamento')
+#axEE.set_ylim(0, 500)
+axEE.legend()
+figureEE.show()
+
+#3) 
+# Consulta para obtener cantidad de EE por departamento y provincia
+query_boxplot = """
+SELECT 
+    p.provincia,
+    d.departamento,
+    COUNT(DISTINCT ee.CUE_establecimiento) AS cantidad_EE
+FROM establecimiento_ubicacion ee
+JOIN departamento_catalogo d ON ee.id_departamento = d.id_departamento
+JOIN provincia_catalogo p ON d.id_provincia = p.id_provincia
+GROUP BY p.provincia, d.departamento
+"""
+
+
+df_boxplot = db.query(query_boxplot).to_df()
+
+# Ordena provincias por mediana de cantidad_EE para que los boxplots estén ordenados
+orden_provincias = (
+    df_boxplot.groupby('provincia')['cantidad_EE']
+    .median()
+    .sort_values()
+    .index
+)
+
+df_boxplot['provincia'] = pd.Categorical(
+    df_boxplot['provincia'],
+    categories=orden_provincias,
+    ordered=True
+)
+
+#4)
+#Grafico
+fig, ax = plt.subplots(figsize=(16, 8))
+
+sns.boxplot(
+    data=df_boxplot,
+    x='provincia',
+    y='cantidad_EE',
+    ax=ax
+)
+
+ax.set_title('Distribución de EE por Departamento en cada Provincia (ordenado por mediana)', fontsize=14)
+ax.set_xlabel('Provincia')
+ax.set_ylabel('Cantidad de EE por Departamento')
+ax.tick_params(axis='x', rotation=90)
+
+plt.tight_layout()
+plt.show()
+
+
+query_relacion = """
+    SELECT dep_emp.provincia, dep_emp.departamento, dep_emp."Cantidad total de empleados en 2022",
+    dep_EE.Cant_EE, dep_EE.poblacion, ((dep_emp."Cantidad total de empleados en 2022" * 1000.0) / dep_EE.poblacion) AS empleados_por_1000,
+    ((dep_EE.Cant_EE * 1000.0) / dep_EE.poblacion) AS EE_por_1000 FROM result2 dep_emp
+    INNER JOIN result3 dep_EE
+    ON dep_emp.provincia = dep_EE.provincia AND dep_emp.departamento = dep_EE.departamento
+    ORDER BY Cant_EE DESC
+"""
 
 
 
+df_relacion = db.query(query_relacion).to_df()
+
+plt.figure(figsize=(10, 6))
+sns.scatterplot(
+    data=df_relacion,
+    x='empleados_por_1000',
+    y='EE_por_1000'
+)
+plt.title('Relación entre empleo y EE por cada 1000 habitantes')
+plt.xlabel('Empleo por cada 1000 habitantes')
+plt.ylabel('Establecimientos educativos por cada 1000 habitantes')
+#plt.ylim(0, 6)
+#plt.xlim(0, 500)
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+#5)
+query_genero = """
+SELECT
+  a.clae6,
+  c.clae6_desc,
+  SUM(CASE WHEN a.genero LIKE '%Mujer%' THEN a.empleo ELSE 0 END) AS empleo_mujer,
+  SUM(a.empleo) AS empleo_total,
+  SUM(CASE WHEN a.genero LIKE '%Mujer%' THEN a.empleo ELSE 0 END) * 1.0 / SUM(a.empleo) AS proporcion_mujer
+FROM actividad_departamento a
+JOIN actividad_catalogo c ON a.clae6 = c.clae6
+WHERE a.empleo IS NOT NULL
+GROUP BY a.clae6, c.clae6_desc
+HAVING SUM(a.empleo) > 0
+"""
+
+df_genero = db.query(query_genero).to_df()
+
+
+df_sort = df_genero.sort_values('proporcion_mujer', ascending=False)
+top5 = df_sort.head(5)
+bottom5 = df_sort.tail(5)
+df_plot = pd.concat([top5, bottom5])
+
+# Calcular promedio
+media_proporcion = df_genero['proporcion_mujer'].mean()
+
+
+plt.figure(figsize=(10, 6))
+sns.barplot(
+    data=df_plot.sort_values('proporcion_mujer', ascending=True),  # ordena visualmente de menor a mayor
+    y='clae6_desc',
+    x='proporcion_mujer',
+    palette='Blues_r'
+)
+
+# Línea del promedio
+plt.axvline(media_proporcion, color='red', linestyle='--', label=f'Media = {media_proporcion:.2%}')
+
+# Ajustes estéticos
+plt.title('5 actividades con mayor y menor proporción de empleo femenino (2022)', fontsize=12)
+plt.xlabel('Proporción de empleo femenino (%)')
+plt.ylabel('Actividad (CLAE6)')
+plt.legend()
+plt.grid(axis='x', linestyle=':', alpha=0.6)
+
+# Mostrar valores en porcentaje
+plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x*100:.0f}%'))
+
+plt.tight_layout()
+plt.show()
