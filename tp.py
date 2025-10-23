@@ -4,9 +4,22 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from IPython.display import display
 
+# TRABAJO PRACTICA NRO 1 LABORATORIO DE DATOS - 2025
+# Bongiovanni, Franco Alessio
+# Cabrera, Franco
+# Claros Delgado, Sabrina 
+# El código de este trabajo se divide en 4 secciones:
+# * Inicialización de archivos, donde se cargan las tablas crudas que sirven base.
+# * Limpieza de datos, donde se realizan las consultas para completar las tablas del modelo relacional.
+# * Queries, donde se realizan las consultas SQL pedidas.
+# * Análisis visual de datos, donde se realizan las gráficas o visualizaciones pedidas.
+
+
 # SECCION INICIALIZACION DE ARCHIVOS
 
-carpeta = "~/Documents/university/laboratorio_de_datos/TP/"
+# Reemplazar el filepath por el que corresponda a la ubicación a la hora de correr el archivo
+
+carpeta = "~/TablasOriginales/"
 
 datos_por_departamento = pd.read_csv(carpeta+"Datos_por_departamento_actividad_y_sexo.csv")
 padron_poblacion = pd.read_excel(carpeta+"padron_poblacion.xlsX")
@@ -241,6 +254,18 @@ query10 = """
 
 actividad_departamento = db.query(query10).to_df()
 
+pathCsvs = carpeta + 'TablasModelo/'
+
+modalidad_educativa.to_csv(pathCsvs+'modalidad_educativa.csv')
+establecimiento_educativo.to_csv(pathCsvs+'establecimiento_educativo.csv')
+establecimiento_modalidad.to_csv(pathCsvs+'establecimiento_modalidad.csv')
+establecimiento_ubicacion.to_csv(pathCsvs+'establecimiento_ubicacion.csv')
+departamento_catalogo.to_csv(pathCsvs+'departamento_catalogo.csv')
+provincia_catalogo.to_csv(pathCsvs+'provincia_catalogo.csv')
+actividad_departamento.to_csv(pathCsvs+'actividad_departamento.csv')
+actividad_catalogo.to_csv(pathCsvs+'actividad_catalogo.csv')
+poblacion_departamento.to_csv(pathCsvs+'poblacion_departamento.csv')
+
 # SECCION QUERIES
 
 # Se hace la consulta sobre la tabla departamento y luego se hacen joins sobre las subqueries que procesaron los datos pedidos por medio de la función de 
@@ -373,7 +398,7 @@ res_query4 = """
                 ON empleos_departamento.id_departamento = departamento_max_clae6.id_departamento
                 INNER JOIN provincia_catalogo prov ON empleos_provincia.id_provincia = prov.id_provincia
                 WHERE empleos_departamento.empleo_departamento > empleos_provincia.empleo / departamentos_provincia.cantidad_departamentos
-                ORDER BY provincia DESC
+                ORDER BY provincia ASC, departamento_max_clae6.empleo DESC
 """
 
 result4 = db.query(res_query4).to_df()
@@ -382,6 +407,7 @@ display(result1)
 display(result2)
 display(result3)
 display(result4)
+
 
 
 # SECCION ANALISIS VISUAL DE DATOS
@@ -429,7 +455,7 @@ axEE.scatter(data=result1, x='Población Superior no Universitaria', y='Superior
 
 axEE.set_title('Establecimientos Educativos por Población en su Grupo Etario por Departamento en Argentina')
 axEE.set_xlabel('Población en departamento')
-#axEE.set_ylabel('Cantidad de EE en departamento')
+axEE.set_ylabel('Cantidad de EE en departamento')
 #axEE.set_ylim(0, 500)
 axEE.legend()
 figureEE.show()
@@ -503,7 +529,7 @@ sns.scatterplot(
     x='empleados_por_1000',
     y='EE_por_1000'
 )
-plt.title('Relación entre empleo y EE por cada 1000 habitantes')
+plt.title('Relación entre empleo y EE por cada 1000 habitantes por departamento')
 plt.xlabel('Empleo por cada 1000 habitantes')
 plt.ylabel('Establecimientos educativos por cada 1000 habitantes')
 #plt.ylim(0, 6)
